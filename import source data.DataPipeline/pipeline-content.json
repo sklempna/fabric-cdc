@@ -1,0 +1,488 @@
+{
+  "properties": {
+    "activities": [
+      {
+        "type": "SetVariable",
+        "typeProperties": {
+          "variableName": "load_dts",
+          "value": {
+            "value": "@utcNow()",
+            "type": "Expression"
+          }
+        },
+        "policy": {
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Set load_dts",
+        "dependsOn": []
+      },
+      {
+        "type": "SetVariable",
+        "typeProperties": {
+          "variableName": "source_entity",
+          "value": {
+            "value": "@pipeline().parameters.source_entity",
+            "type": "Expression"
+          }
+        },
+        "policy": {
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Set source_entity",
+        "dependsOn": []
+      },
+      {
+        "type": "Script",
+        "typeProperties": {
+          "scripts": [
+            {
+              "text": {
+                "value": "insert into wh_metadata.dbo.pipeline_runs (run_id, source_entity, load_dts) values ('@{variables('run_id')}','@{pipeline().parameters.source_entity}','@{variables('load_dts')}')",
+                "type": "Expression"
+              },
+              "type": "Query"
+            }
+          ],
+          "scriptBlockExecutionTimeout": "02:00:00"
+        },
+        "linkedService": {
+          "name": "wh_metadata",
+          "properties": {
+            "type": "DataWarehouse",
+            "typeProperties": {
+              "artifactId": "d04f474c-3d8c-42e9-a307-d25c5f8d3521",
+              "endpoint": "w4d6qkoc6pfudigbnto2elcp6y-dpi4c7tjzcaerjoetlgcpuruou.datawarehouse.fabric.microsoft.com",
+              "workspaceId": "7ec1d11b-c869-4880-a5c4-9acc27d23475"
+            },
+            "annotations": []
+          }
+        },
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "log source import",
+        "dependsOn": [
+          {
+            "activity": "Copy source entity",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Copy",
+        "typeProperties": {
+          "source": {
+            "type": "DataWarehouseSource",
+            "partitionOption": "None",
+            "queryTimeout": "02:00:00",
+            "additionalColumns": [
+              {
+                "name": "load_dts",
+                "value": {
+                  "value": "@variables('load_dts')",
+                  "type": "Expression"
+                }
+              }
+            ],
+            "datasetSettings": {
+              "type": "DataWarehouseTable",
+              "typeProperties": {
+                "schema": "dbo",
+                "table": {
+                  "value": "@pipeline().parameters.source_entity",
+                  "type": "Expression"
+                }
+              },
+              "schema": [],
+              "linkedService": {
+                "name": "wh_datasource",
+                "properties": {
+                  "type": "DataWarehouse",
+                  "typeProperties": {
+                    "artifactId": "b0be77b2-6b14-430c-b163-cd243f17565b",
+                    "endpoint": "w4d6qkoc6pfudigbnto2elcp6y-dpi4c7tjzcaerjoetlgcpuruou.datawarehouse.fabric.microsoft.com",
+                    "workspaceId": "7ec1d11b-c869-4880-a5c4-9acc27d23475"
+                  },
+                  "annotations": []
+                }
+              },
+              "annotations": []
+            }
+          },
+          "sink": {
+            "type": "ParquetSink",
+            "formatSettings": {
+              "type": "ParquetWriteSettings",
+              "enableVertiParquet": true
+            },
+            "storeSettings": {
+              "type": "LakehouseWriteSettings"
+            },
+            "datasetSettings": {
+              "type": "Parquet",
+              "typeProperties": {
+                "location": {
+                  "type": "LakehouseLocation",
+                  "folderPath": {
+                    "value": "staging_@{variables('source_entity')}",
+                    "type": "Expression"
+                  },
+                  "fileName": {
+                    "value": "@variables('run_id')",
+                    "type": "Expression"
+                  }
+                },
+                "compressionCodec": "snappy"
+              },
+              "schema": [],
+              "linkedService": {
+                "name": "lh_staging",
+                "properties": {
+                  "type": "Lakehouse",
+                  "typeProperties": {
+                    "artifactId": "9ba30d31-7565-acf9-4e62-9e86cba40a4b",
+                    "workspaceId": "00000000-0000-0000-0000-000000000000",
+                    "rootFolder": "Files"
+                  },
+                  "annotations": []
+                }
+              },
+              "annotations": []
+            }
+          },
+          "translator": {
+            "type": "TabularTranslator",
+            "typeConversion": true,
+            "typeConversionSettings": {
+              "allowDataTruncation": true,
+              "treatBooleanAsNumber": false
+            }
+          },
+          "enableStaging": false
+        },
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Copy source entity",
+        "dependsOn": [
+          {
+            "activity": "Set prev_run_id",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          },
+          {
+            "activity": "Set pk_column",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Lookup",
+        "typeProperties": {
+          "source": {
+            "type": "DataWarehouseSource",
+            "sqlReaderQuery": {
+              "value": "with cte as (\nselect \n    run_id\nfrom wh_metadata.dbo.pipeline_runs\nwhere load_dts = (select max(load_dts) from wh_metadata.dbo.pipeline_runs where load_dts < '@{variables('load_dts')}'\n    and source_entity = '@{variables('source_entity')}'))\nselect \ncase when exists (select 1 from cte) then (select top 1 run_id from cte)\nelse '00000000-0000-0000-0000-000000000000'\nend as run_id",
+              "type": "Expression"
+            },
+            "partitionOption": "None",
+            "queryTimeout": "02:00:00"
+          },
+          "datasetSettings": {
+            "type": "DataWarehouseTable",
+            "schema": [],
+            "linkedService": {
+              "name": "wh_metadata",
+              "properties": {
+                "type": "DataWarehouse",
+                "typeProperties": {
+                  "artifactId": "d04f474c-3d8c-42e9-a307-d25c5f8d3521",
+                  "endpoint": "w4d6qkoc6pfudigbnto2elcp6y-dpi4c7tjzcaerjoetlgcpuruou.datawarehouse.fabric.microsoft.com",
+                  "workspaceId": "7ec1d11b-c869-4880-a5c4-9acc27d23475"
+                },
+                "annotations": []
+              }
+            },
+            "annotations": []
+          }
+        },
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Lookup previous run_id",
+        "dependsOn": [
+          {
+            "activity": "Set load_dts",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          },
+          {
+            "activity": "Set source_entity",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          },
+          {
+            "activity": "Set run_id",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "SetVariable",
+        "typeProperties": {
+          "variableName": "first_import",
+          "value": {
+            "value": "@if(equals(variables('prev_run_id'), '00000000-0000-0000-0000-000000000000'), bool(1), bool(0))",
+            "type": "Expression"
+          }
+        },
+        "policy": {
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Set first_import",
+        "dependsOn": [
+          {
+            "activity": "log source import",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "TridentNotebook",
+        "typeProperties": {
+          "notebookId": "49a90e41-4521-b543-4d1a-0bb5ac8b8ea4",
+          "workspaceId": "00000000-0000-0000-0000-000000000000",
+          "parameters": {
+            "load_dts": {
+              "value": {
+                "value": "@formatDateTime(variables('load_dts'))",
+                "type": "Expression"
+              },
+              "type": "string"
+            },
+            "prev_run_id": {
+              "value": {
+                "value": "@variables('prev_run_id')",
+                "type": "Expression"
+              },
+              "type": "string"
+            },
+            "first_import": {
+              "value": {
+                "value": "@variables('first_import')",
+                "type": "Expression"
+              },
+              "type": "bool"
+            },
+            "pk_column": {
+              "value": {
+                "value": "@variables('pk_column')",
+                "type": "Expression"
+              },
+              "type": "string"
+            },
+            "source_entity": {
+              "value": {
+                "value": "@variables('source_entity')",
+                "type": "Expression"
+              },
+              "type": "string"
+            },
+            "run_id": {
+              "value": {
+                "value": "@variables('run_id')",
+                "type": "Expression"
+              },
+              "type": "string"
+            }
+          }
+        },
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "run nb create cdc data",
+        "dependsOn": [
+          {
+            "activity": "Set first_import",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "SetVariable",
+        "typeProperties": {
+          "variableName": "prev_run_id",
+          "value": {
+            "value": "@activity('Lookup previous run_id').output.firstRow.run_id",
+            "type": "Expression"
+          }
+        },
+        "policy": {
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Set prev_run_id",
+        "dependsOn": [
+          {
+            "activity": "Lookup previous run_id",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "Lookup",
+        "typeProperties": {
+          "source": {
+            "type": "DataWarehouseSource",
+            "sqlReaderQuery": {
+              "value": "select\n    pk_column\nfrom \n    source_entities\nwhere\n    source_entity = '@{variables('source_entity')}'\n    \n",
+              "type": "Expression"
+            },
+            "partitionOption": "None",
+            "queryTimeout": "02:00:00"
+          },
+          "datasetSettings": {
+            "type": "DataWarehouseTable",
+            "schema": [],
+            "linkedService": {
+              "name": "wh_metadata",
+              "properties": {
+                "type": "DataWarehouse",
+                "typeProperties": {
+                  "artifactId": "d04f474c-3d8c-42e9-a307-d25c5f8d3521",
+                  "endpoint": "w4d6qkoc6pfudigbnto2elcp6y-dpi4c7tjzcaerjoetlgcpuruou.datawarehouse.fabric.microsoft.com",
+                  "workspaceId": "7ec1d11b-c869-4880-a5c4-9acc27d23475"
+                },
+                "annotations": []
+              }
+            },
+            "annotations": []
+          }
+        },
+        "policy": {
+          "timeout": "0.12:00:00",
+          "retry": 0,
+          "retryIntervalInSeconds": 30,
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Lookup pk_column",
+        "dependsOn": [
+          {
+            "activity": "Set source_entity",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          },
+          {
+            "activity": "Set run_id",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "SetVariable",
+        "typeProperties": {
+          "variableName": "pk_column",
+          "value": {
+            "value": "@activity('Lookup pk_column').output.firstRow.pk_column",
+            "type": "Expression"
+          }
+        },
+        "policy": {
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Set pk_column",
+        "dependsOn": [
+          {
+            "activity": "Lookup pk_column",
+            "dependencyConditions": [
+              "Succeeded"
+            ]
+          }
+        ]
+      },
+      {
+        "type": "SetVariable",
+        "typeProperties": {
+          "variableName": "run_id",
+          "value": {
+            "value": "@pipeline().RunId",
+            "type": "Expression"
+          }
+        },
+        "policy": {
+          "secureInput": false,
+          "secureOutput": false
+        },
+        "name": "Set run_id",
+        "dependsOn": []
+      }
+    ],
+    "parameters": {
+      "source_entity": {
+        "type": "string"
+      }
+    },
+    "variables": {
+      "load_dts": {
+        "type": "String"
+      },
+      "source_entity": {
+        "type": "String"
+      },
+      "first_import": {
+        "type": "Boolean"
+      },
+      "prev_load_dts": {
+        "type": "String"
+      },
+      "pk_column": {
+        "type": "String"
+      },
+      "prev_run_id": {
+        "type": "String"
+      },
+      "run_id": {
+        "type": "String"
+      }
+    }
+  }
+}
