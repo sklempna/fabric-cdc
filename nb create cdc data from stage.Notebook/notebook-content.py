@@ -78,10 +78,10 @@ previous_df = spark.read.parquet(f"Files/staging_{source_entity}/{prev_run_id}")
 
 # CELL ********************
 
-hashed_df = df.withColumn(
-    "row_hash",  # New column for the hash
-    md5(concat_ws("||", *[col(c) for c in df.columns if c != 'load_dts']))  # Concatenate all columns with a delimiter
-)
+# hashed_df = df.withColumn(
+#     "row_hash",  # New column for the hash
+#     md5(concat_ws("||", *[col(c) for c in df.columns if c != 'load_dts']))  # Concatenate all columns with a delimiter
+# )
 
 # METADATA ********************
 
@@ -114,8 +114,68 @@ for c in previous_df.columns:
 
 # CELL ********************
 
-left_df = hashed_df.filter(col('load_dts') == load_dts)
-right_df = hashed_df.filter(col('load_dts') == prev_load_dts).withColumnRenamed(pk_column, f"right_{pk_column}").withColumnRenamed("row_hash", "right_row_hash")
+display(previous_df)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+display(current_df)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+# left_df = hashed_df.filter(col('load_dts') == load_dts)
+# right_df = hashed_df.filter(col('load_dts') == prev_load_dts).withColumnRenamed(pk_column, f"right_{pk_column}").withColumnRenamed("row_hash", "right_row_hash")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+join_df = current_df.join(previous_df, previous_df[f"prev_{pk_column}"] == current_df[pk_column], how="left")
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+display(join_df)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+insert_df = join_df.filter(col(f"prev_{pk_column}").isNull())
+insert_df = insert_df.select(current_df.columns)
+insert_df = insert_df.withColumn("load_dts", to_timestamp(col("load_dts"))).withColumnRenamed("load_dts", "_cdc_load_dts")
+insert_df = insert_df.withColumn("_cdc_operation", lit("insert"))
+insert_df = insert_df.drop("row_hash")
+
 
 # METADATA ********************
 
@@ -151,6 +211,39 @@ delete_df = delete_df.withColumn("load_dts", to_timestamp(col("load_dts"))).with
 delete_df = delete_df.withColumn("_cdc_operation", lit("delete"))
 delete_df = delete_df.drop("row_hash")
 display(delete_df)
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+insert_df.show()
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+update_df.show()
+
+# METADATA ********************
+
+# META {
+# META   "language": "python",
+# META   "language_group": "synapse_pyspark"
+# META }
+
+# CELL ********************
+
+delete_df.show()
 
 # METADATA ********************
 

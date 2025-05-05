@@ -6,4 +6,3 @@ CREATE TABLE [dbo].[employee] (
 	[mail] varchar(500) NOT NULL, 
 	[status] varchar(200) NOT NULL
 );
-

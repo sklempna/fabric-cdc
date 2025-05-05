@@ -4,4 +4,3 @@ CREATE TABLE [dbo].[pipeline_runs] (
 	[load_dts] datetime2(6) NOT NULL, 
 	[source_entity] varchar(200) NOT NULL
 );
-
